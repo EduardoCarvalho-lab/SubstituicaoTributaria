@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Analisador de NF-e - Substituição Tributária (ST)</title>
+    <!-- Tailwind CSS para Estilização Base -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS para Exportação Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Ícones Lucide -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Seu CSS Personalizado -->
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="bg-gray-50 min-h-screen text-gray-800 font-sans">
+    <div class="max-w-7xl mx-auto px-4 py-8">
+      <!-- Cabeçalho -->
+      <header class="mb-8 text-center">
+        <h1
+          class="text-3xl font-bold text-blue-600 flex items-center justify-center gap-2"
+        >
+          <i data-lucide="file-spreadsheet" class="w-8 h-8"></i> Analisador de
+          NF-e (Substituição Tributária)
+        </h1>
+        <p class="text-gray-600 mt-2">
+          Arraste ou selecione múltiplos arquivos XML de notas fiscais para
+          identificar produtos com ICMS-ST.
+        </p>
+      </header>
+
+      <!-- Área de Upload -->
+      <div
+        class="bg-white p-6 rounded-xl shadow-md border-2 border-dashed border-gray-300 hover:border-blue-500 transition-colors cursor-pointer mb-8 text-center"
+        id="drop-zone"
+      >
+        <input
+          type="file"
+          id="xml-files"
+          multiple
+          accept=".xml"
+          class="hidden"
+        />
+        <div class="flex flex-col items-center justify-center space-y-3">
+          <i data-lucide="upload-cloud" class="w-12 h-12 text-blue-500"></i>
+          <p class="text-lg font-medium text-gray-700">
+            Clique para selecionar ou arraste os arquivos XML aqui
+          </p>
+          <p class="text-sm text-gray-400">
+            Suporta múltiplos arquivos simultaneamente (Lote)
+          </p>
+        </div>
+      </div>
+
+      <!-- Indicador de Progresso / Carregamento -->
+      <div
+        id="loading-container"
+        class="hidden mb-8 bg-blue-50 border border-blue-200 p-4 rounded-lg flex items-center justify-between"
+      >
+        <div class="flex items-center space-x-3">
+          <div
+            class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"
+          ></div>
+          <span id="loading-text" class="text-blue-700 font-medium"
+            >Processando arquivos...</span
+          >
+        </div>
+      </div>
+
+      <!-- Painel de Estatísticas / Cards -->
+      <div
+        id="stats-panel"
+        class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 hidden"
+      >
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <p class="text-sm text-gray-500">Notas Lidas com Sucesso</p>
+          <p id="stat-notas" class="text-2xl font-bold text-gray-800">0</p>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <p class="text-sm text-gray-500">Itens com ST Identificados</p>
+          <p id="stat-itens" class="text-2xl font-bold text-blue-600">0</p>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <p class="text-sm text-gray-500">Valor Total ST Retido</p>
+          <p id="stat-valortotal" class="text-2xl font-bold text-emerald-600">
+            R$ 0,00
+          </p>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <p class="text-sm text-gray-500">Arquivos com Erro / Ignorados</p>
+          <p id="stat-erros" class="text-2xl font-bold text-red-500">0</p>
+        </div>
+      </div>
+
+      <!-- Seção da Tabela e Filtros -->
+      <div
+        id="results-container"
+        class="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden hidden"
+      >
+        <div
+          class="p-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4"
+        >
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <input
+              type="text"
+              id="search-input"
+              placeholder="Buscar por produto, NCM ou nota..."
+              class="px-4 py-2 border border-gray-300 rounded-lg text-sm w-full sm:w-80 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div class="flex items-center gap-3 w-full sm:w-auto justify-end">
+            <button
+              id="btn-export-excel"
+              class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Exportar
+              Excel
+            </button>
+            <button
+              id="btn-export-csv"
+              class="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <i data-lucide="download" class="w-4 h-4"></i> Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr
+                class="bg-gray-100 text-gray-600 uppercase text-xs tracking-wider"
+              >
+                <th class="p-3">Nota / Emitente</th>
+                <th class="p-3">Código</th>
+                <th class="p-3">Descrição do Produto</th>
+                <th class="p-3">NCM</th>
+                <th class="p-3">Qtd / Un</th>
+                <th class="p-3">CST/CSOSN</th>
+                <th class="p-3">Base ST (vBCST)</th>
+                <th class="p-3">ICMS ST (vICMSST)</th>
+              </tr>
+            </thead>
+            <tbody id="table-body" class="divide-y divide-gray-200 text-sm">
+              <!-- Inserido dinamicamente via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Script Principal -->
+    <script src="script.js"></script>
+  </body>
+</html>

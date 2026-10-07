@@ -1,0 +1,16 @@
+/* Customizações adicionais que complementam o Tailwind */
+body {
+  background-color: #f9fafb;
+}
+
+/* Transições suaves para interações */
+button,
+input {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Efeito visual ao arrastar arquivos sobre a zona de drop */
+#drop-zone.dragover {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+}
