@@ -35,36 +35,146 @@ fileInput.addEventListener("change", (e) => {
   }
 });
 
-// MATRIZ DE REGRAS DO ESTADO DO RIO DE JANEIRO (RICMS/RJ e Convênio ICMS 142/2018)
+// MATRIZ DE REGRAS DO ESTADO DO RIO DE JANEIRO (RICMS/RJ e Convênio ICMS 142/2018) com Setores
 const REGRAS_ST_RJ = {
-  22021000: { desc: "Refrigerantes", mva: 45.0, aliquota: 0.2 },
-  22030000: { desc: "Cervejas e Chopes", mva: 56.12, aliquota: 0.22 },
-  87089990: { desc: "Autopeças diversas", mva: 35.0, aliquota: 0.2 },
-  33030010: { desc: "Perfumes e águas-de-colônia", mva: 40.0, aliquota: 0.2 },
-  48202000: { desc: "Cadernos escolares", mva: 30.0, aliquota: 0.18 },
+  22011000: {
+    desc: "Águas minerais",
+    mva: 40.0,
+    aliquota: 0.2,
+    setor: "Bebidas Frias",
+  },
+  22021000: {
+    desc: "Refrigerantes",
+    mva: 45.0,
+    aliquota: 0.2,
+    setor: "Bebidas Frias",
+  },
+  22030000: {
+    desc: "Cervejas e Chopes",
+    mva: 56.12,
+    aliquota: 0.22,
+    setor: "Bebidas Frias",
+  },
+  87089990: {
+    desc: "Autopeças diversas",
+    mva: 35.0,
+    aliquota: 0.2,
+    setor: "Autopeças",
+  },
+  87082999: {
+    desc: "Partes e acessórios de carrocerias",
+    mva: 35.0,
+    aliquota: 0.2,
+    setor: "Autopeças",
+  },
+  87084090: {
+    desc: "Caixas de câmbio",
+    mva: 35.0,
+    aliquota: 0.2,
+    setor: "Autopeças",
+  },
+  33030010: {
+    desc: "Perfumes e águas-de-colônia",
+    mva: 40.0,
+    aliquota: 0.2,
+    setor: "Higiene / Cosméticos",
+  },
+  48202000: {
+    desc: "Cadernos escolares",
+    mva: 30.0,
+    aliquota: 0.18,
+    setor: "Papelaria",
+  },
 };
 
-async function processarLoteXMLs(files) {
+// Função recursiva para extrair XMLs de ZIPs e sub-ZIPs independentemente da estrutura de pastas
+async function extrairArquivosRecursivamente(zipObj, caminhoPai = "") {
+  let xmlsExtraidos = [];
+  const entries = Object.keys(zipObj.files);
+
+  for (let filename of entries) {
+    const zipEntry = zipObj.files[filename];
+    if (zipEntry.dir) continue;
+
+    const nomeLower = filename.toLowerCase();
+
+    if (nomeLower.endsWith(".xml")) {
+      const xmlText = await zipEntry.async("text");
+      xmlsExtraidos.push({
+        name: filename.split("/").pop(),
+        text: async () => xmlText,
+      });
+    } else if (nomeLower.endsWith(".zip")) {
+      try {
+        const subZipData = await zipEntry.async("uint8array");
+        const subZip = new JSZip();
+        const loadedSubZip = await subZip.loadAsync(subZipData);
+        const subXmls = await extrairArquivosRecursivamente(
+          loadedSubZip,
+          filename,
+        );
+        xmlsExtraidos.push(...subXmls);
+      } catch (subErr) {
+        console.warn(
+          `Aviso: Não foi possível ler o sub-ZIP ${filename}:`,
+          subErr,
+        );
+      }
+    }
+  }
+
+  return xmlsExtraidos;
+}
+
+async function processarLoteXMLs(fileList) {
   loadingContainer.classList.remove("hidden");
   statsPanel.classList.add("hidden");
   resultsContainer.classList.add("hidden");
   dadosGlobaisST = [];
+
+  let arquivosParaProcessar = [];
+
+  for (let file of fileList) {
+    const nomeLower = file.name.toLowerCase();
+    if (nomeLower.endsWith(".zip")) {
+      loadingText.textContent = `Descompactando e varrendo pacotes em ${file.name}...`;
+      try {
+        const zip = new JSZip();
+        const zipContent = await zip.loadAsync(file);
+        const xmlsDoZip = await extrairArquivosRecursivamente(zipContent);
+        arquivosParaProcessar.push(...xmlsDoZip);
+      } catch (err) {
+        console.warn(`Erro ao processar o arquivo ZIP raiz ${file.name}:`, err);
+      }
+    } else if (nomeLower.endsWith(".xml")) {
+      arquivosParaProcessar.push(file);
+    }
+  }
+
+  if (arquivosParaProcessar.length === 0) {
+    loadingContainer.classList.add("hidden");
+    alert(
+      "Nenhum arquivo XML válido foi encontrado nos arquivos ou pastas compactadas enviados.",
+    );
+    return;
+  }
 
   let notasComST = 0;
   let notasSemST = 0;
   let arquivosComErroTecnico = 0;
   let totalValorST = 0;
 
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    loadingText.textContent = `Auditando ST (RJ) - Arquivo ${i + 1} de ${files.length}: ${file.name}`;
+  for (let i = 0; i < arquivosParaProcessar.length; i++) {
+    const file = arquivosParaProcessar[i];
+    loadingText.textContent = `Auditando ST (RJ) - Arquivo ${i + 1} de ${arquivosParaProcessar.length}: ${file.name}`;
 
     try {
-      const text = await file.text();
+      const text = await (typeof file.text === "function"
+        ? file.text()
+        : Promise.resolve(file.text));
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(text, "text/xml");
 
-      // Verifica se é um XML de NF-e válido
       const nfeTag =
         xmlDoc.getElementsByTagName("NFe")[0] ||
         xmlDoc.getElementsByTagName("nfeProc")[0];
@@ -136,16 +246,16 @@ async function processarLoteXMLs(files) {
           );
         }
 
-        // CRITÉRIO RIGOROSO DE AUDITORIA DE ST:
         const cstsST = ["10", "30", "60", "70", "201", "202", "203", "500"];
         const ehCstSTExplicito = cstsST.includes(codigoFiscal);
         const ehNCMST = REGRAS_ST_RJ.hasOwnProperty(ncm);
+        const regraSetor = ehNCMST ? REGRAS_ST_RJ[ncm] : null;
+        const nomeSetor = regraSetor ? regraSetor.setor : "Geral / Outros";
 
         if (ehNCMST && !ehCstSTExplicito && vICMSST === 0 && vBCST === 0) {
           stOmitidaFornecedor = true;
-          const regra = REGRAS_ST_RJ[ncm];
-          vBCST = (vProd + vFrete) * (1 + regra.mva / 100);
-          vICMSST = vBCST * regra.aliquota - vProd * 0.12;
+          vBCST = (vProd + vFrete) * (1 + regraSetor.mva / 100);
+          vICMSST = vBCST * regraSetor.aliquota - vProd * 0.12;
           if (vICMSST < 0) vICMSST = 0;
           codigoFiscal = codigoFiscal
             ? `${codigoFiscal} (Omitido)`
@@ -163,6 +273,7 @@ async function processarLoteXMLs(files) {
             cfop: cfop,
             quantidade: qCom,
             unidade: uCom,
+            setor: nomeSetor,
             codigoTributo: codigoFiscal,
             baseCalculoST: vBCST,
             valorICMSST: vICMSST,
@@ -176,7 +287,7 @@ async function processarLoteXMLs(files) {
       if (itensIdentificadosNestaNota > 0) {
         notasComST++;
       } else {
-        notasSemST++; // Nota válida, mas sem ST
+        notasSemST++;
       }
     } catch (err) {
       console.warn(`Aviso no arquivo ${file.name}:`, err.message);
@@ -184,7 +295,6 @@ async function processarLoteXMLs(files) {
     }
   }
 
-  // Atualiza os cards estatísticos no HTML
   document.getElementById("stat-notas").textContent = notasComST;
   document.getElementById("stat-itens").textContent = dadosGlobaisST.length;
   document.getElementById("stat-valortotal").textContent =
@@ -193,13 +303,9 @@ async function processarLoteXMLs(files) {
       currency: "BRL",
     });
 
-  // Mostramos de forma detalhada na interface os erros técnicos vs notas sem ST
   const cardErros = document.getElementById("stat-erros");
   if (cardErros) {
-    cardErros.innerHTML = `
-            <span class="text-red-600">${arquivosComErroTecnico} Erros</span> / 
-            <span class="text-gray-600">${notasSemST} Sem ST</span>
-        `;
+    cardErros.textContent = `${arquivosComErroTecnico} Erros / ${notasSemST} Sem ST`;
   }
 
   loadingContainer.classList.add("hidden");
@@ -212,19 +318,20 @@ async function processarLoteXMLs(files) {
 function renderizarTabela(dados) {
   tableBody.innerHTML = "";
   if (dados.length === 0) {
-    tableBody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-gray-500">Nenhum item tributável por ST encontrado.</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-gray-500">Nenhum item tributável por ST encontrado.</td></tr>`;
     return;
   }
 
   dados.forEach((item) => {
     const tr = document.createElement("tr");
     const badgeAlerta = item.alertaOmissao
-      ? `<span class="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded font-bold ml-1" title="Fornecedor omitiu a ST no XML. Capturado por regra de NCM/RJ.">⚠️ ST OMITIDA PELO FORNECEDOR</span>`
+      ? `<span class="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded font-bold ml-1" title="Fornecedor omitiu a ST no XML. Capturado por regra de NCM/RJ.">⚠️ ST OMITIDA</span>`
       : "";
 
     tr.className = item.alertaOmissao
       ? "bg-amber-50/60 hover:bg-amber-50 border-b border-gray-100"
       : "hover:bg-gray-50 border-b border-gray-100";
+
     tr.innerHTML = `
             <td class="p-3">
                 <span class="font-semibold text-gray-800">NF ${item.numeroNota}</span>
@@ -235,6 +342,7 @@ function renderizarTabela(dados) {
                 ${item.descricao} ${badgeAlerta}
             </td>
             <td class="p-3 font-mono text-xs">${item.ncm} (CFOP: ${item.cfop})</td>
+            <td class="p-3"><span class="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded font-medium">${item.setor}</span></td>
             <td class="p-3">${item.quantidade} ${item.unidade}</td>
             <td class="p-3"><span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded font-semibold">${item.codigoTributo}</span></td>
             <td class="p-3 font-mono">R$ ${item.baseCalculoST.toFixed(2)}</td>
@@ -251,7 +359,8 @@ searchInput.addEventListener("input", (e) => {
       item.descricao.toLowerCase().includes(termo) ||
       item.ncm.includes(termo) ||
       item.numeroNota.includes(termo) ||
-      item.codigo.toLowerCase().includes(termo),
+      item.codigo.toLowerCase().includes(termo) ||
+      item.setor.toLowerCase().includes(termo),
   );
   renderizarTabela(filtrados);
 });
@@ -266,6 +375,7 @@ document.getElementById("btn-export-excel").addEventListener("click", () => {
       Descrição: i.descricao,
       NCM: i.ncm,
       CFOP: i.cfop,
+      Setor: i.setor,
       Qtd: i.quantidade,
       Unidade: i.unidade,
       "CST/CSOSN": i.codigoTributo,
@@ -285,9 +395,9 @@ document.getElementById("btn-export-excel").addEventListener("click", () => {
 document.getElementById("btn-export-csv").addEventListener("click", () => {
   if (dadosGlobaisST.length === 0) return alert("Não há dados para exportar.");
   let csvContent =
-    "data:text/csv;charset=utf-8,Nota;Emitente;Codigo;Descricao;NCM;CFOP;Qtd;Un;CST;BaseST;ValorST;Status\n";
+    "data:text/csv;charset=utf-8,Nota;Emitente;Codigo;Descricao;NCM;CFOP;Setor;Qtd;Un;CST;BaseST;ValorST;Status\n";
   dadosGlobaisST.forEach((i) => {
-    csvContent += `"${i.numeroNota}","${i.emitente}","${i.codigo}","${i.descricao}","${i.ncm}","${i.cfop}",${i.quantidade},"${i.unidade}","${i.codigoTributo}",${i.baseCalculoST},${i.valorICMSST},"${i.alertaOmissao ? "OMITIDA" : "NORMAL"}"\n`;
+    csvContent += `"${i.numeroNota}","${i.emitente}","${i.codigo}","${i.descricao}","${i.ncm}","${i.cfop}","${i.setor}",${i.quantidade},"${i.unidade}","${i.codigoTributo}",${i.baseCalculoST},${i.valorICMSST},"${i.alertaOmissao ? "OMITIDA" : "NORMAL"}"\n`;
   });
   const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");

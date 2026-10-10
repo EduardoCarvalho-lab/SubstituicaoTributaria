@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- SheetJS para Exportação Excel -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- JSZip para leitura de arquivos Compactados (.zip) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- Ícones Lucide -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Seu CSS Personalizado -->
@@ -24,8 +26,9 @@
           NF-e (Substituição Tributária)
         </h1>
         <p class="text-gray-600 mt-2">
-          Arraste ou selecione múltiplos arquivos XML de notas fiscais para
-          identificar produtos com ICMS-ST.
+          Arraste ou selecione múltiplos arquivos XML ou pacotes compactados
+          (.zip) de notas fiscais para identificar produtos com ICMS-ST e regras
+          setoriais (RJ).
         </p>
       </header>
 
@@ -38,16 +41,16 @@
           type="file"
           id="xml-files"
           multiple
-          accept=".xml"
+          accept=".xml,.zip"
           class="hidden"
         />
         <div class="flex flex-col items-center justify-center space-y-3">
           <i data-lucide="upload-cloud" class="w-12 h-12 text-blue-500"></i>
           <p class="text-lg font-medium text-gray-700">
-            Clique para selecionar ou arraste os arquivos XML aqui
+            Clique para selecionar ou arraste os arquivos XML ou .zip aqui
           </p>
           <p class="text-sm text-gray-400">
-            Suporta múltiplos arquivos simultaneamente (Lote)
+            Suporta múltiplos arquivos XML e pacotes compactados (.zip)
           </p>
         </div>
       </div>
@@ -135,6 +138,7 @@
                 <th class="p-3">Código</th>
                 <th class="p-3">Descrição do Produto</th>
                 <th class="p-3">NCM</th>
+                <th class="p-3">Setor</th>
                 <th class="p-3">Qtd / Un</th>
                 <th class="p-3">CST/CSOSN</th>
                 <th class="p-3">Base ST (vBCST)</th>
